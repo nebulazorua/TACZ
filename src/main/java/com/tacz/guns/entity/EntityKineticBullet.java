@@ -3,9 +3,11 @@ package com.tacz.guns.entity;
 import com.google.common.collect.Lists;
 import com.tacz.guns.GunMod;
 import com.tacz.guns.api.DefaultAssets;
+import com.tacz.guns.api.TimelessAPI;
 import com.tacz.guns.api.entity.IGunOperator;
 import com.tacz.guns.api.entity.ITargetEntity;
 import com.tacz.guns.api.entity.KnockBackModifier;
+import com.tacz.guns.api.entity.ReloadState;
 import com.tacz.guns.api.event.common.EntityHurtByGunEvent;
 import com.tacz.guns.api.event.common.EntityKillByGunEvent;
 import com.tacz.guns.api.event.server.AmmoHitBlockEvent;
@@ -17,6 +19,7 @@ import com.tacz.guns.network.NetworkHandler;
 import com.tacz.guns.network.message.event.ServerMessageGunHurt;
 import com.tacz.guns.network.message.event.ServerMessageGunKill;
 import com.tacz.guns.particles.BulletHoleOption;
+import com.tacz.guns.resource.index.CommonGunIndex;
 import com.tacz.guns.resource.modifier.AttachmentCacheProperty;
 import com.tacz.guns.resource.modifier.custom.*;
 import com.tacz.guns.resource.pojo.data.gun.BulletData;
@@ -64,6 +67,11 @@ import net.minecraftforge.fml.LogicalSide;
 import net.minecraftforge.network.NetworkHooks;
 import org.apache.commons.lang3.tuple.Pair;
 import org.jetbrains.annotations.Nullable;
+import org.luaj.vm2.LuaError;
+import org.luaj.vm2.LuaFunction;
+import org.luaj.vm2.LuaValue;
+import org.luaj.vm2.Varargs;
+import org.luaj.vm2.lib.jse.CoerceJavaToLua;
 
 import java.util.*;
 
@@ -330,7 +338,62 @@ public class EntityKineticBullet extends Projectile implements IEntityAdditional
         }
     }
 
-    protected void onHitEntity(TacHitResult result, Vec3 startVec, Vec3 endVec) {
+
+	private LuaFunction checkFunction(LuaValue luaValue) {
+        if (luaValue.isfunction()) {
+            return (LuaFunction) luaValue;
+        } else if (luaValue.isnil()) {
+            return null;
+        } else {
+            throw new LuaError("bad argument: function or nil expected, got " + luaValue.typename());
+        }
+    }
+
+
+	protected void onHitEntity(TacHitResult result, Vec3 startVec, Vec3 endVec) {
+		Optional<CommonGunIndex> gunIndexOptional = TimelessAPI.getCommonGunIndex(gunId);
+        CommonGunIndex gunIndex = gunIndexOptional.orElse(null);
+
+		EntityKineticBulletScriptAPI api = new EntityKineticBulletScriptAPI();
+		api.setOwner(getOwner());
+		api.setResult(result);
+		api.setStartVec(startVec);
+		api.setEndVec(endVec);
+		api.setBullet(this);
+		
+        if(Optional.ofNullable(gunIndex.getScript())
+			.map(script -> checkFunction(script.get("hit_entity")))
+			.map(
+				func -> func.call(CoerceJavaToLua.coerce(api)).checkboolean()
+			)
+			.orElse(true)){
+				defaultOnHitEntity(result, startVec, endVec); // TODO: add this to api
+		}
+	}
+
+	protected void onHitBlock(BlockHitResult result, Vec3 startVec, Vec3 endVec){
+		super.onHitBlock(result);
+
+		Optional<CommonGunIndex> gunIndexOptional = TimelessAPI.getCommonGunIndex(gunId);
+		CommonGunIndex gunIndex = gunIndexOptional.orElse(null);
+
+		EntityKineticBulletScriptAPI api = new EntityKineticBulletScriptAPI();
+		api.setOwner(getOwner());
+		api.setBlockResult(result);
+		api.setStartVec(startVec);
+		api.setEndVec(endVec);
+		api.setBullet(this);
+
+		if (Optional.ofNullable(gunIndex.getScript())
+				.map(script -> checkFunction(script.get("hit_block")))
+				.map(
+						func -> func.call(CoerceJavaToLua.coerce(api)).checkboolean())
+				.orElse(true)) {
+			defaultOnHitBlock(result, startVec, endVec); // TODO: add this to api
+		}
+	}
+
+    protected void defaultOnHitEntity(TacHitResult result, Vec3 startVec, Vec3 endVec) {
         if (result.getEntity() instanceof ITargetEntity targetEntity) {
             DamageSource source = this.damageSources().thrown(this, this.getOwner());
             targetEntity.onProjectileHit(this, result, source, this.getDamage(result.getLocation()));
@@ -414,8 +477,7 @@ public class EntityKineticBullet extends Projectile implements IEntityAdditional
         }
     }
 
-    protected void onHitBlock(BlockHitResult result, Vec3 startVec, Vec3 endVec) {
-        super.onHitBlock(result);
+    protected void defaultOnHitBlock(BlockHitResult result, Vec3 startVec, Vec3 endVec) {
         if (result.getType() == HitResult.Type.MISS) {
             return;
         }

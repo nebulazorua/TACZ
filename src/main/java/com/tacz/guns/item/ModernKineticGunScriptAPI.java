@@ -11,6 +11,7 @@ import com.tacz.guns.api.item.gun.AbstractGunItem;
 import com.tacz.guns.api.item.gun.FireMode;
 import com.tacz.guns.api.util.LuaEntityAccessor;
 import com.tacz.guns.api.util.LuaNbtAccessor;
+import com.tacz.guns.api.util.LuaScriptAPI;
 import com.tacz.guns.client.animation.statemachine.GunAnimationStateContext;
 import com.tacz.guns.entity.EntityKineticBullet;
 import com.tacz.guns.entity.shooter.ShooterDataHolder;
@@ -29,12 +30,16 @@ import com.tacz.guns.resource.pojo.data.gun.InaccuracyType;
 import com.tacz.guns.sound.SoundManager;
 import com.tacz.guns.util.AttachmentDataUtils;
 import com.tacz.guns.util.CycleTaskHelper;
+import com.tacz.guns.util.ExplodeUtil;
+
 import it.unimi.dsi.fastutil.Pair;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.fml.LogicalSide;
@@ -47,9 +52,7 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 @SuppressWarnings("unused")
-public class ModernKineticGunScriptAPI {
-    public static String MARKER = "ScriptAPI";
-
+public class ModernKineticGunScriptAPI extends LuaScriptAPI {
     private LivingEntity shooter;
 
     private ShooterDataHolder dataHolder;
@@ -71,6 +74,12 @@ public class ModernKineticGunScriptAPI {
     private LuaNbtAccessor nbtUtil;
 
     private LuaEntityAccessor entityAccessor;
+
+
+	public void createExplosion(Vec3 position, float damage, float radius, boolean knockback, boolean destroysBlocks){
+		ExplodeUtil.createExplosion((Entity) shooter, (Entity) shooter, damage, radius, knockback, destroysBlocks, position);
+	}
+
 
     /**
      * 执行一次完整的射击逻辑，会考虑玩家的状态(是否在瞄准、是否在移动、是否在匍匐等)、配件数值影响、多弹丸散射、连发，播放开火音效、
@@ -489,28 +498,6 @@ public class ModernKineticGunScriptAPI {
     public LuaTable getScriptParams() {
         LuaTable param = gunIndex.getScriptParam();
         return param == null ? new LuaTable() : param;
-    }
-
-    /**
-     * 委托延迟的循环任务，在主线程执行，是线程安全的，但是时间不是严格的，粒度取决于 TPS。
-     *
-     * @param value    应当是一个返回 boolean 的 LuaFunction。如果返回 false ，则将退出循环。
-     * @param delayMs  延迟执行的时间。
-     * @param periodMs 循环执行的间隔。
-     * @param cycles   最大循环次数。-1 代表无限次。
-     */
-    public void safeAsyncTask(LuaValue value, long delayMs, long periodMs, int cycles) {
-        LuaFunction func = value.checkfunction();
-        CycleTaskHelper.addCycleTask(() -> func.call().checkboolean(), delayMs, periodMs, cycles);
-    }
-
-    /**
-     * 获取当前系统时间，单位毫秒。
-     *
-     * @return 当前系统时间
-     */
-    public long getCurrentTimestamp() {
-        return System.currentTimeMillis();
     }
 
     /**
